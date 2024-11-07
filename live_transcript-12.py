@@ -16,7 +16,8 @@ import pythoncom
 recognizer = sr.Recognizer()
 
 # Directory to save audio files and the text file
-AUDIO_SAVE_PATH = "C:\\AudioTrigger"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+AUDIO_SAVE_PATH = os.path.join(script_dir, "AudioTrigger")
 TEXT_FILE_PATH = os.path.join(AUDIO_SAVE_PATH, "transcribed_texts.txt")
 os.makedirs(AUDIO_SAVE_PATH, exist_ok=True)  # Create directory if it doesn't exist
 
@@ -134,8 +135,8 @@ def full_show_triggers(csv_file):
         global collected_Arrow
 
         pythoncom.CoInitialize()  # Initialize COM in this thread
- 
-        ppt_file_path = "X:\\AiVideo\\תמונות למופע.pptx"
+        
+        ppt_file_path = os.path.join(script_dir, "tmunot_ofaa.pptx")
         powerpoint, presentation = open_ppt(ppt_file_path)
 
         while trigger_pointer <= min(len(trigger_keywords),3):
@@ -454,7 +455,7 @@ def select_device():
     apply_button.pack(pady=10)
 
 # GUI setup
-ppt_file_path = "X:\\AiVideo\\תמונות למופע.pptx"
+ppt_file_path = os.path.join(script_dir, "tmunot_ofaa.pptx")
 
 root = tk.Tk()
 root.title("Speech Recognition with Keyword Highlighting")
@@ -475,7 +476,7 @@ device_button = tk.Button(root, text="Select Recording Device", command=select_d
 device_button.pack(padx=5, pady=5, side=tk.BOTTOM)
 
 # Example: Run full_show_triggers in a separate thread
-csv_file_path = "C:\\AudioTrigger\\show_triggers.xlsx"  # Example CSV file path
+csv_file_path = os.path.join(script_dir, "show_triggers.xlsx")  # Example CSV file path
 
 # Create a thread for the full_show_triggers function and start it
 show_trigger_thread = threading.Thread(target=full_show_triggers, args=(csv_file_path,), daemon=True)

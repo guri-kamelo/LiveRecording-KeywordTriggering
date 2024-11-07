@@ -1,0 +1,7 @@
+speechrecognition
+pandas
+watchdog
+comtypes
+pywin32
+openpyxl
+pyaudio
