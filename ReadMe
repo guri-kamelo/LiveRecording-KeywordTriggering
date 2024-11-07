@@ -1,0 +1,7 @@
+download presentation for the show 
+Link: https://docs.google.com/presentation/d/1za99KGW5v4PrqzAWcz3lTd95nlEuNOtl/edit?usp=drive_link&ouid=107998932855308131619&rtpof=true&sd=true
+fix the file pointers in the script to the ppt and trigger xlsx file 
+run main 
+select input audio device using the select device button
+start recording 
+make sure to stop recording before closing the app(otherwise it will continue recording)
