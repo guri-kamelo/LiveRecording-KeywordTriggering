@@ -139,7 +139,7 @@ def full_show_triggers(csv_file):
         ppt_file_path = os.path.join(script_dir, "tmunot_ofaa.pptx")
         powerpoint, presentation = open_ppt(ppt_file_path)
 
-        while trigger_pointer <= min(len(trigger_keywords),3):
+        while trigger_pointer <= len(trigger_keywords):
             if collected_texts:
                 current_keyword = trigger_keywords[trigger_pointer - 1]  # Get the current trigger keyword
                 # Call the keyword trigger function for the current keyword
@@ -235,7 +235,7 @@ def keyword_trigger(keyword, powerpoint, presentation):
 
     keyword_words = keyword.split()  # Split the keyword sentence into words
     keyword_length = len(keyword_words)  # Get the number of words in the keyword
-    trigger_threshold = max(1, keyword_length // 2)  # Set the threshold to half of the keyword words
+    trigger_threshold = min(4, keyword_length // 2)  # Set the threshold to half of the keyword words
 
     if collected_texts:
         text = collected_texts[0]  # Take the first transcribed sentence
