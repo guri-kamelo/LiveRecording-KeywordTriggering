@@ -11,6 +11,11 @@ import csv
 import pandas as pd
 import comtypes.client
 import pythoncom
+import time
+import pyaudio  # Import the PyAudio module
+from pydub import AudioSegment
+from pydub.silence import detect_nonsilent
+import io
 
 # Initialize recognizer
 recognizer = sr.Recognizer()
@@ -37,7 +42,8 @@ trigger_pointer = 1  # Pointer to track which trigger we are waiting for
 collected_Arrow = False
 trigger_keywords = []  # List to hold all keywords from the CSV
 trigger_listbox = []
-
+recording_thread = None  # To track the recording thread
+lock = threading.Lock()  # To ensure thread safety
 
 def open_ppt(ppt_file):
     """
@@ -54,7 +60,6 @@ def open_ppt(ppt_file):
     return powerpoint, presentation
 
 
-import time
 
 def play_slide_with_animations(powerpoint, presentation, slide_number):
     """
@@ -161,42 +166,97 @@ def full_show_triggers(csv_file):
     # Start monitoring for keyword triggers in a separate thread
     threading.Thread(target=monitor_triggers, daemon=True).start()
 
-# Function to record audio continuously and save as WAV files every 10 seconds
-def record_audio(duration=10):
-    global is_recording, selected_device_index
-    mic = sr.Microphone(device_index=selected_device_index)
-    count = 0  # To keep track of how many audio segments have been saved
+
+def record_audio(output_dir=AUDIO_SAVE_PATH, debug=False, min_duration_ms=5000):
+    """
+    Continuously records audio and saves segments. Each segment will be at least min_duration_ms long.
     
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source)  # Adjust for noise only once
-        print("Listening for audio...")
+    Args:
+        output_dir (str): Directory to save audio chunks.
+        debug (bool): Flag to save recorded audio regardless of silence detection.
+        min_duration_ms (int): Minimum duration for each audio segment in milliseconds.
+    """
+    global selected_device_index
+    global trigger_keywords
+    global is_recording
+    current_keyword = trigger_keywords[trigger_pointer - 1]
+    keyword_length = len(current_keyword.split())
+    min_duration_ms = (keyword_length + 2) * 1000
+    device_index = selected_device_index
+
+    # Audio settings
+    RATE = 44100  # Sampling rate
+    CHUNK = 1024 * 8  # Audio chunk size
+    FORMAT = pyaudio.paInt16  # Audio format
+    CHANNELS = 1  # Mono recording
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # PyAudio setup
+    p = pyaudio.PyAudio()
+
+    # Open audio stream with optional device index
+    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
+                    input_device_index=device_index, frames_per_buffer=CHUNK)
+
+    print("Recording started. Press Ctrl+C to stop.")
+
+    try:
+        audio_buffer = b''  # Use bytes to accumulate audio data
+        retained_audio = b''  # Buffer to retain last portion of previous segment
+        count = 0
+        min_chunks = (min_duration_ms * RATE) // (CHUNK * 1000)  # Calculate the number of chunks for min_duration_ms
 
         while is_recording:
-            print(f"Recording for the next {duration} seconds...")
+            # Read audio data from the microphone
+            data = stream.read(CHUNK)
+            audio_buffer += data
 
-            # Record the audio for the specified duration
-            audio = recognizer.listen(source, timeout=0, phrase_time_limit=duration)
+            # If the buffer is large enough (at least min_duration_ms long), save the segment
+            if len(audio_buffer) >= min_chunks * CHUNK * p.get_sample_size(FORMAT):
+                # Retain the last chunk of audio data for continuity
+                retained_audio = audio_buffer[-CHUNK:]  # Save last chunk
+                
+                # Write the audio buffer to a BytesIO object for pydub to process
+                audio_io = io.BytesIO(audio_buffer)
+                
+                # Create an AudioSegment from the raw audio data
+                audio_segment = AudioSegment.from_raw(audio_io, sample_width=p.get_sample_size(FORMAT),
+                                                      frame_rate=RATE, channels=CHANNELS)
 
-            # Save audio as a WAV file
-            audio_filename = os.path.join(AUDIO_SAVE_PATH, f"audio_segment_{count}.wav")
-            with open(audio_filename, "wb") as f:
-                f.write(audio.get_wav_data())
+                # Save the audio segment to a file
+                audio_filename = os.path.join(output_dir, f"audio_debug_segment_{count}.wav")
+                audio_segment.export(audio_filename, format="wav")
+                print(f"Saved debug audio segment: {audio_filename}")
+                count += 1
 
-            print(f"Audio saved as {audio_filename}")
-            count += 1
+                # Reset the audio buffer but retain the last chunk for continuity
+                audio_buffer = retained_audio
 
-            time.sleep(0.1)  # Small delay to ensure audio files don't overlap
+    except KeyboardInterrupt:
+        print("Recording stopped.")
+    finally:
+        # Close PyAudio stream
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+        print("Audio recording finished.")
 
 # Watchdog event handler to monitor new WAV files and trigger transcription
 class AudioFileHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.src_path.endswith(".wav"):
             print(f"New file detected: {event.src_path}")
-            transcribe_audio(event.src_path)
+            #transcribe_audio(event.src_path)
+            transcription_thread = threading.Thread(target=transcribe_audio, args=(event.src_path,))
+            transcription_thread.start()
 
 # Function to transcribe a given audio file
 def transcribe_audio(audio_file):
     global collected_texts
+    debug = 1
 
     # Load the audio file
     with sr.AudioFile(audio_file) as source:
@@ -216,11 +276,17 @@ def transcribe_audio(audio_file):
         update_transcript(text)
 
         # Remove the audio file after transcription
-        os.remove(audio_file)
-        print(f"Audio file {audio_file} removed successfully.")
+        if not debug :
+            os.remove(audio_file)
+            print(f"Audio file {audio_file} removed successfully.")
 
     except sr.UnknownValueError:
+
         print(f"Could not understand the audio in {audio_file}")
+        if not debug :
+            os.remove(audio_file)
+            print(f"Audio file {audio_file} removed successfully.")
+
     except sr.RequestError as e:
         print(f"Could not request results from Google Speech Recognition service; {e}")
 
@@ -238,7 +304,7 @@ def keyword_trigger(keyword, powerpoint, presentation):
     trigger_threshold = min(4, keyword_length // 2)  # Set the threshold to half of the keyword words
 
     if collected_texts:
-        text = collected_texts[0]  # Take the first transcribed sentence
+        text = collected_texts[0].lower()  # Take the first transcribed sentence
         sentence_words = text.split()  # Split the transcribed sentence into words
         
         match_count = 0
@@ -368,17 +434,39 @@ def clean_audio_directory():
             except Exception as e:
                 print(f"Error deleting file {file_path}: {e}")
 
+
 # Start recording button action
 def start_recording():
-    global is_recording
-    clean_audio_directory()  # Clean the directory before starting the recording
-    is_recording = True
-    threading.Thread(target=record_audio).start()
+    global is_recording, recording_thread
+
+    with lock:
+        if is_recording:
+            print("Already recording!")
+            return
+
+        clean_audio_directory()  # Clean the directory before starting the recording
+        is_recording = True
+
+    recording_thread = threading.Thread(target=record_audio)
+    recording_thread.start()
+    print("Recording started.")
 
 # Stop recording button action
 def stop_recording():
-    global is_recording
-    is_recording = False
+    global is_recording, recording_thread
+
+    with lock:
+        if not is_recording:
+            print("Recording is not active.")
+            return
+
+        is_recording = False  # Set flag to stop the recording
+        print("Stopping recording...")
+
+    if recording_thread:
+        #recording_thread.join()  # Wait for the thread to finish
+        recording_thread = None  # Reset the thread reference
+
     print("Recording stopped.")
 
 # Function to monitor the directory for new WAV files
