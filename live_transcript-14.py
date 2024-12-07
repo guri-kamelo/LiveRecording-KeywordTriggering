@@ -48,7 +48,7 @@ trigger_keywords = []  # List to hold all keywords from the CSV
 trigger_listbox = []
 recording_thread = None  # To track the recording thread
 lock = threading.Lock()  # To ensure thread safety
-
+trigger_delay = []
 def open_ppt(ppt_file):
     """
     Opens a PowerPoint file and returns the PowerPoint application and presentation object.
@@ -65,27 +65,60 @@ def open_ppt(ppt_file):
 
 
 
+#def play_slide_with_animations(powerpoint, presentation, slide_number):
+#    """
+#    Moves to the specific slide and displays it with animations.
+#    """
+#    # Set the presentation to slide show mode from the specific slide
+#    slide_show = presentation.SlideShowSettings
+#    slide_show.StartingSlide = slide_number
+#    slide_show.EndingSlide = slide_number
+#    slide_show.AdvanceMode = 1  # Automatic mode, allowing animations to proceed
+#    slide_show.Run()
+#    # Access the slide show window to control the view
+#    slide_show_window = powerpoint.SlideShowWindows(1)
+#    # Move to the specific slide if not already there
+#    slide_show_window.View.GotoSlide(slide_number)
 def play_slide_with_animations(powerpoint, presentation, slide_number):
     """
-    Moves to the specific slide and displays it with animations.
+    Moves to the specific slide and displays it with animations, with a delay before switching slides.
+    
+    Parameters:
+    - powerpoint: The PowerPoint application object.
+    - presentation: The presentation object.
+    - slide_number: The slide number to display.
+    - frlay: Default delay (in seconds) before switching to the slide.
+    - csv_file: Path to a CSV file containing slide delays. The file should have 'slide_number' and 'delay' columns.
     """
+    # Load delays from the CSV file if provided
+    global trigger_delay
+    # Get the delay for the current slide
+    delay = trigger_delay[slide_number-1]
+
     # Set the presentation to slide show mode from the specific slide
     slide_show = presentation.SlideShowSettings
     slide_show.StartingSlide = slide_number
     slide_show.EndingSlide = slide_number
     slide_show.AdvanceMode = 1  # Automatic mode, allowing animations to proceed
     slide_show.Run()
+
     # Access the slide show window to control the view
     slide_show_window = powerpoint.SlideShowWindows(1)
-    # Move to the specific slide if not already there
+
+    # Add a delay before switching slides
+    if delay > 0 :
+        update_transcript(f"*******************  waiting for trigger activation {delay}Sec************************")
+        time.sleep(delay)
     slide_show_window.View.GotoSlide(slide_number)
 
+    # Move to the specific slide if not already there
 # Function to read keyword triggers from a CSV file
 def load_triggers_from_csv(csv_file):
     global trigger_keywords
+    global trigger_delay
     df = pd.read_excel(csv_file)
     trigger_keywords = df["Keywords"].dropna().tolist()
-
+    trigger_delay = df["delay"].dropna().tolist()
     print(f"Loaded triggers: {trigger_keywords}")
 
 def increase_trigger_position(trigger_listbox):
@@ -146,7 +179,7 @@ def full_show_triggers(csv_file):
         global start_index
         pythoncom.CoInitialize()  # Initialize COM in this thread
         
-        ppt_file_path = os.path.join(script_dir, "C:\\Users\\gurik\\OneDrive\\Documents\\מצא את המטמון הרצל.pptx")
+        ppt_file_path = os.path.join(script_dir, "Y:\\LivePPT\\LiveRecording-KeywordTriggering\\tmunot_ofaa.pptx")
         powerpoint, presentation = open_ppt(ppt_file_path)
 
         while trigger_pointer <= len(trigger_keywords):
@@ -163,7 +196,7 @@ def full_show_triggers(csv_file):
                     # Highlight the current trigger in the listbox
                     start_index = increment_index(start_index, line_increment=1, column_increment=0)
                     # Step 2: Move to the specific slide and display it
-                    play_slide_with_animations(powerpoint, presentation, trigger_pointer+1)
+                    play_slide_with_animations(powerpoint, presentation, trigger_pointer,)
                     highlight_current_trigger(trigger_listbox, trigger_pointer)
                 if collected_texts and collected_texts[0] != "":
                     collected_texts.pop(0)
@@ -351,8 +384,8 @@ device_combobox = ttk.Combobox(root, values=device_list)
 device_combobox.set(device_list[0] if device_list else "No devices found")
 device_combobox.pack(pady=10)
 # Transcript display window
-transcript_window = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=80, height=20)
-transcript_window.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.BOTH, expand=True)
+transcript_window = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=50, height=20)
+transcript_window.pack(side=tk.LEFT, padx=80, pady=10, fill=tk.BOTH, expand=True)
 
 # Start and stop buttons
 #start_button = tk.Button(root, text="Start", command=AudioToTextTranscriber.start_transcription(update_transcript))
